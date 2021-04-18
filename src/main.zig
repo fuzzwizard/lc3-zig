@@ -127,7 +127,7 @@ pub fn main() anyerror!void {
         std.debug.warn("lc3 [image-file1] ...\n", .{});
         return error.InsufficientArgs;
     }
-    // TODO: the catch here isn't detecting that read_image has the return type of `!anything`
+    // TODO: the catch here isn't detecting that read_image has the return type of `!void`
     // so it gets mad that we try to catch it. Probably worth a bug report, if consistently reproducable.
     // for (args[1..]) |arg| {
     //     try read_image(arg) catch |e| { // TODO: why doesn't this work?
