@@ -1,5 +1,6 @@
 const std = @import("std");
 
+// NOTE: Don't reorder these.
 const Register = enum(u16) {
     R0,
     R1,
@@ -13,6 +14,7 @@ const Register = enum(u16) {
     COND,
 };
 
+// NOTE: Don't reorder these.
 const Opcode = enum(u16) {
     BR = 0, // branch
     ADD, // add
@@ -51,6 +53,7 @@ var regs = [_]u16{0} ** @typeInfo(Register).Enum.fields.len;
 inline fn set_reg(r: Register, val: u16) void {
     regs[@enumToInt(r)] = val;
 }
+
 inline fn get_reg(r: Register) u16 {
     return regs[@enumToInt(r)];
 }
@@ -68,7 +71,7 @@ inline fn update_flags(r: Register) void {
 inline fn sign_extend(x: u16, bit_count: u4) u16 {
     var ret = x;
     if ((ret >> (bit_count - 1)) & 0x1 != 0) {
-        ret |= (@as(u16, 0xFFFF) << bit_count);
+        ret |= @as(u16, 0xFFFF) << bit_count;
     }
     return ret;
 }
@@ -127,8 +130,10 @@ pub fn main() anyerror!void {
         std.debug.warn("lc3 [image-file1] ...\n", .{});
         return error.InsufficientArgs;
     }
-    // TODO: the catch here isn't detecting that read_image has the return type of `!anything`
-    // so it gets mad that we try to catch it. Probably worth a bug report, if consistently reproducable.
+
+    // TODO: the catch here isn't detecting that read_image has the return type of `!void`
+    // so it gets mad that we try to catch it. Probably worth a bug report, if consistently reproducable. (Zig 7.1.0)
+    // 																			
     // for (args[1..]) |arg| {
     //     try read_image(arg) catch |e| { // TODO: why doesn't this work?
     //         std.debug.warn("Failed to load file: {}", .{arg});
