@@ -38,9 +38,9 @@ const Flag = enum(u16) {
     NEG = 1 << 2,
 };
 
-fn read_image(path: ?[]const u8) anyerror!bool {
+fn read_image(path: ?[]const u8) !void {
     if (path) |p| {
-        return true;
+        return;
     }
     return error.NoPathProvided;
 }
@@ -48,42 +48,73 @@ fn read_image(path: ?[]const u8) anyerror!bool {
 var memory = [_]u16{0} ** std.math.maxInt(u16);
 var regs = [_]u16{0} ** @typeInfo(Register).Enum.fields.len;
 
-fn get_reg(r: Register) u16 {
+inline fn set_reg(r: Register, val: u16) void {
+    regs[@enumToInt(r)] = val;
+}
+inline fn get_reg(r: Register) u16 {
     return regs[@enumToInt(r)];
 }
 
-fn get_reg_ptr(r: Register) *u16 {
-    return &regs[@enumToInt(r)];
+inline fn update_flags(r: Register) void {
+    if (get_reg(r) == 0) {
+        set_reg(.COND, @enumToInt(Flag.ZRO));
+    } else if (get_reg(r) >> 15 != 0) {
+        set_reg(.COND, @enumToInt(Flag.NEG));
+    } else {
+        set_reg(.COND, @enumToInt(Flag.POS));
+    }
 }
 
-fn lc3() !void {
+inline fn sign_extend(x: u16, bit_count: u4) u16 {
+    var ret = x;
+    if ((ret >> (bit_count - 1)) & 0x1 != 0) {
+        ret |= (@as(u16, 0xFFFF) << bit_count);
+    }
+    return ret;
+}
+
+fn lc3() !u16 {
     const pc_start = 0x3000;
-    get_reg_ptr(.PC).* = pc_start;
+    set_reg(.PC, pc_start);
 
     var running = true;
     while (running) {
         var instr = memory[get_reg(.PC)];
-        get_reg_ptr(.PC).* += 1;
-        var op = instr >> 12;
-        switch (@intToEnum(Opcode, op)) {
-            .BR => unreachable,
-            .ADD => unreachable,
-            .LD => unreachable,
-            .ST => unreachable,
-            .JSR => unreachable,
-            .AND => unreachable,
-            .LDR => unreachable,
-            .STR => unreachable,
-            .NOT => unreachable,
-            .LDI => unreachable,
-            .STI => unreachable,
-            .JMP => unreachable,
-            .LEA => unreachable,
-            .TRAP => unreachable,
+        set_reg(.PC, get_reg(.PC) + 1);
+        var op = @intToEnum(Opcode, instr >> 12);
+        switch (op) {
+            .BR => {},
+            .ADD => {
+                const r0 = (instr >> 9) & 0x7;
+                const r1 = (instr >> 6) & 0x7;
+                const imm_flag = (instr >> 5) & 0x1;
+                if (imm_flag == 1) {
+                    const imm5 = sign_extend(instr & 0b11111, 5);
+                    set_reg(.R0, get_reg(.R1) + imm5);
+                } else {
+                    const r2 = instr & 0x7;
+                    set_reg(.R0, get_reg(.R1) + regs[r2]);
+                }
+                update_flags(.R0);
+            },
+            .LD => {},
+            .ST => {},
+            .JSR => {},
+            .AND => {},
+            .LDR => {},
+            .STR => {},
+            .NOT => {},
+            .LDI => {},
+            .STI => {},
+            .JMP => {},
+            .LEA => {},
+            .TRAP => {},
             .RTI, .RES => return error.BadOpCode,
         }
         running = false;
     }
+
+    return get_reg(.R0);
 }
 
 pub fn main() anyerror!void {
@@ -105,5 +136,9 @@ pub fn main() anyerror!void {
     //     };
     // }
 
-    try lc3();
+    _ = try lc3();
+}
+
+test "smoke" {
+    _ = try lc3();
 }
