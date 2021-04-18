@@ -131,11 +131,10 @@ pub fn main() anyerror!void {
         return error.InsufficientArgs;
     }
 
-    // TODO: the catch here isn't detecting that read_image has the return type of `!void`
-    // so it gets mad that we try to catch it. Probably worth a bug report, if consistently reproducable. (Zig 7.1.0)
-    // 																			
     // for (args[1..]) |arg| {
-    //     try read_image(arg) catch |e| { // TODO: why doesn't this work?
+    //     try read_image(arg) catch |e| {
+    // TODO: the catch here isn't detecting that read_image has the return type of `!void`	
+    // so it gets mad that we try to catch it. Probably worth a bug report, if consistently reproducable. (Zig 7.1.0)
     //         std.debug.warn("Failed to load file: {}", .{arg});
     //         return e;
     //     };
