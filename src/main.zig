@@ -20,7 +20,7 @@ const Register = enum(u16) {
         return @enumToInt(self);
     }
 
-    pub fn get_count() usize {
+    pub fn get_count() comptime_int {
         return @typeInfo(Register).Enum.fields.len;
     }
 };
@@ -60,6 +60,15 @@ const Flag = enum(u16) {
     pub fn as_u16(self: Self) u16 {
         return @enumToInt(self);
     }
+};
+
+const Trap = enum(u16) {
+    GETC = 0x20, // get character from keyboard, not echoed onto the terminal
+    OUT = 0x21, // output a character
+    PUTS = 0x22, // output a word string
+    IN = 0x23, // get character from keyboard, echoed onto the terminal
+    PUTSP = 0x24, // output a byte string
+    HALT = 0x25 // halt the program
 };
 
 fn read_image(path: ?[]const u8) !void {
@@ -104,7 +113,7 @@ fn mem_write(addr: u16, val: u16) void {
 //    sign_extend(instr, i6) == sign_extend(instr & 0b0011_1111, 6)
 //    sign_extend(instr, i9) == sign_extend(instr & 0b1_1111_1111, 9)
 fn sign_extend(x: u16, bit_count: u4) u16 {
-    if ((x >> (bit_count - 1)) & 0b1 != 0) {
+    if ((x >> (bit_count - 1)) & 1 != 0) {
         return x | @as(u16, 0xFFFF) << bit_count;
     } else {
         return x;
@@ -112,6 +121,9 @@ fn sign_extend(x: u16, bit_count: u4) u16 {
 }
 
 fn lc3() !u16 {
+    const stdout = std.io.getStdOut().writer();
+    const stdin = std.io.getStdIn().reader();
+
     const pc_start = 0x3000;
     reg_write(.PC, pc_start);
 
@@ -122,7 +134,7 @@ fn lc3() !u16 {
         var op = @intToEnum(Opcode, instr >> 12);
         switch (op) {
             // Unused
-            .RTI, .RES => return error.BadOpCode,
+            .RTI, .RES => return error.BadOpcode,
 
             // Binary ops
             .ADD => {
@@ -130,7 +142,7 @@ fn lc3() !u16 {
                 const r1 = (instr >> 6) & 0b111;
                 const imm_flag = (instr >> 5) & 1;
                 if (imm_flag == 1) {
-                    const imm5 = sign_extend(instr & 0b0001_1111, 5);
+                    const imm5 = sign_extend(instr & 0x1F, 5);
                     reg[r0] = reg[r1] + imm5;
                 } else {
                     const r2 = instr & 0b111;
@@ -143,7 +155,7 @@ fn lc3() !u16 {
                 const r1 = (instr >> 6) & 0b111;
                 const imm_flag = (instr >> 5) & 1;
                 if (imm_flag == 1) {
-                    const imm5 = sign_extend(instr & 0b0001_1111, 5);
+                    const imm5 = sign_extend(instr & 0x1F, 5);
                     reg[r0] = reg[r1] & imm5;
                 } else {
                     const r2 = instr & 0b111;
@@ -161,26 +173,26 @@ fn lc3() !u16 {
             // Loads
             .LD => {
                 const r0 = (instr >> 9) & 0b111;
-                const pc_offset = sign_extend(instr & 0b1_1111_1111, 9);
+                const pc_offset = sign_extend(instr & 0x1FF, 9);
                 reg[r0] = mem_read(reg_read(.PC) + pc_offset);
                 update_flags(r0);
             },
             .LDR => {
                 const r0 = (instr >> 9) & 0b111;
                 const r1 = (instr >> 6) & 0b111;
-                const offset = sign_extend(instr & 0b0011_1111, 6);
+                const offset = sign_extend(instr & 0x3F, 6);
                 reg[r0] = mem_read(reg[r1] + offset);
                 update_flags(r0);
             },
             .LDI => {
                 const r0 = (instr >> 9) & 0b111;
-                const pc_offset = sign_extend(instr & 0b1_1111_1111, 9);
+                const pc_offset = sign_extend(instr & 0x1FF, 9);
                 reg[r0] = mem_read(mem_read(reg_read(.PC) + pc_offset));
                 update_flags(r0);
             },
             .LEA => {
                 const r0 = (instr >> 9) & 0b111;
-                const pc_offset = sign_extend(instr & 0b1_1111_1111, 9);
+                const pc_offset = sign_extend(instr & 0x1FF, 9);
                 reg[r0] = reg_read(.PC) + pc_offset;
                 update_flags(r0);
             },
@@ -188,24 +200,24 @@ fn lc3() !u16 {
             // Stores
             .ST => {
                 const r0 = (instr >> 9) & 0b111;
-                const pc_offset = sign_extend(instr & 0b1_1111_1111, 9);
+                const pc_offset = sign_extend(instr & 0x1FF, 9);
                 mem_write(reg_read(.PC) + pc_offset, reg[r0]);
             },
             .STR => {
                 const r0 = (instr >> 9) & 0b111;
                 const r1 = (instr >> 6) & 0b111;
-                const offset = sign_extend(instr & 0b0011_1111, 6);
+                const offset = sign_extend(instr & 0x3F, 6);
                 mem_write(reg[r1] + offset, reg[r0]);
             },
             .STI => {
                 const r0 = (instr >> 9) & 0b111;
-                const pc_offset = sign_extend(instr & 0b1_1111_1111, 9);
+                const pc_offset = sign_extend(instr & 0x1FF, 9);
                 mem_write(mem_read(reg_read(.PC) + pc_offset), reg[r0]);
             },
 
             // Jumps, branches
             .BR => {
-                const pc_offset = sign_extend(instr & 0b1_1111_1111, 9);
+                const pc_offset = sign_extend(instr & 0x1FF, 9);
                 const cond_flag = (instr >> 9) & 0b111;
                 if (cond_flag & reg_read(.COND) != 0) {
                     reg_write(.PC, reg_read(.PC) + pc_offset);
@@ -219,7 +231,7 @@ fn lc3() !u16 {
                 const long_flag = (instr >> 11) & 1;
                 reg_write(.R7, reg_read(.PC));
                 if (long_flag == 1) {
-                    const long_pc_offset = sign_extend(0b0000_0111_1111_1111, 11);
+                    const long_pc_offset = sign_extend(0x3FF, 11);
                     reg_write(.PC, reg_read(.PC) + long_pc_offset);
                 } else {
                     const r1 = (instr >> 6) & 0b111;
@@ -228,9 +240,42 @@ fn lc3() !u16 {
             },
 
             // Trap codes:
-            .TRAP => {},
+            .TRAP => {
+                var code = @intToEnum(Trap, instr & 0xFF);
+                switch (code) {
+                    .IN => {
+                        const ch8 = try stdin.readIntNative(u8);
+                        const ch16 = try std.math.cast(u16, ch8);
+                        reg_write(.R0, ch16);
+                        try stdout.writeByte(ch8 & 0xFF);
+                    },
+                    .OUT => {
+                        const ch8 = try std.math.cast(u8, reg_read(.R0));
+                        try stdout.writeByte(ch8);
+                    },
+                    .GETC => {
+                        const ch16 = try std.math.cast(u16, try stdin.readIntNative(u8));
+                        reg_write(.R0, ch16 & 0xFF);
+                    },
+                    .PUTS => {
+                        const str = std.mem.spanZ(memory[reg_read(.R0)..]);
+                        for (str) |ch16| {
+                            try stdout.writeByte(try std.math.cast(u8, ch16));
+                        }
+                    },
+                    .PUTSP => {
+                        const str = std.mem.spanZ(memory[reg_read(.R0)..]);
+                        for (std.mem.sliceAsBytes(str)) |ch8| {
+                            try stdout.writeByte(ch8);
+                        }
+                    },
+                    .HALT => {
+                        _ = try stdout.write("HALT");
+                        running = false;
+                    },
+                }
+            },
         }
-        running = false;
     }
 
     return reg_read(.R0);
