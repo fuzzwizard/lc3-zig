@@ -1,5 +1,7 @@
 const std = @import("std");
 
+const Program = []u16;
+
 const Register = enum(u16) {
     R0,
     R1,
@@ -41,7 +43,7 @@ const Opcode = enum(u16) {
     JMP = 0b1100, // jump
     RES = 0b1101, // reserved (unused)
     LEA = 0b1110, // load effective address
-    TRAP = 0b1111, // execute trap
+    TRAP = 0b1111, // execute trap [1111|0000|TRAPVECT]
 
     const Self = @This();
     pub fn as_u16(self: Self) u16 {
@@ -71,29 +73,37 @@ fn read_image(path: ?[]const u8) !void {
 var memory = [_]u16{0} ** std.math.maxInt(u16);
 var reg = [_]u16{0} ** Register.get_count();
 
-inline fn update_flags(r0: u16) void {
-    if (reg[r] == 0) {
-        set_reg(.COND, Flag.ZRO.as_u16());
-    } else if (reg[r] >> 15 != 0) {
-        set_reg(.COND, Flag.NEG.as_u16());
+fn update_flags(r0: u16) void {
+    if (reg[r0] == 0) {
+        reg_write(.COND, Flag.ZRO.as_u16());
+    } else if (reg[r0] >> 15 != 0) {
+        reg_write(.COND, Flag.NEG.as_u16());
     } else {
-        set_reg(.COND, Flag.POS.as_u16());
+        reg_write(.COND, Flag.POS.as_u16());
     }
 }
 
-inline fn set_reg(r: Register, val: u16) void {
+fn reg_write(r: Register, val: u16) void {
     reg[r.as_u16()] = val;
 }
 
-inline fn get_reg(r: Register) u16 {
+fn reg_read(r: Register) u16 {
     return reg[r.as_u16()];
 }
 
-inline fn mem_read(addr: u16) u16 {
+fn mem_read(addr: u16) u16 {
     return memory[addr];
 }
 
-inline fn sign_extend(x: u16, bit_count: u4) u16 {
+fn mem_write(addr: u16, val: u16) void {
+    memory[addr] = val;
+}
+
+// TODO: fn sign_extend(x: u16, comptime source_type: type) u16;
+//    sign_extend(instr, i5) == sign_extend(instr & 0b0001_1111, 5)
+//    sign_extend(instr, i6) == sign_extend(instr & 0b0011_1111, 6)
+//    sign_extend(instr, i9) == sign_extend(instr & 0b1_1111_1111, 9)
+fn sign_extend(x: u16, bit_count: u4) u16 {
     if ((x >> (bit_count - 1)) & 0b1 != 0) {
         return x | @as(u16, 0xFFFF) << bit_count;
     } else {
@@ -103,51 +113,127 @@ inline fn sign_extend(x: u16, bit_count: u4) u16 {
 
 fn lc3() !u16 {
     const pc_start = 0x3000;
-    set_reg(.PC, pc_start);
+    reg_write(.PC, pc_start);
 
     var running = true;
     while (running) {
-        var instr = memory[get_reg(.PC)];
-        set_reg(.PC, get_reg(.PC) + 1);
+        var instr = memory[reg_read(.PC)];
+        reg_write(.PC, reg_read(.PC) + 1);
         var op = @intToEnum(Opcode, instr >> 12);
         switch (op) {
+            // Unused
+            .RTI, .RES => return error.BadOpCode,
+
+            // Binary ops
             .ADD => {
-                const r0 = (instr >> 9) & 0x7;
-                const r1 = (instr >> 6) & 0x7;
-                const imm_flag = (instr >> 5) & 0x1;
+                const r0 = (instr >> 9) & 0b111;
+                const r1 = (instr >> 6) & 0b111;
+                const imm_flag = (instr >> 5) & 1;
                 if (imm_flag == 1) {
-                    const imm5 = sign_extend(instr & 0b1_1111, 5);
+                    const imm5 = sign_extend(instr & 0b0001_1111, 5);
                     reg[r0] = reg[r1] + imm5;
                 } else {
-                    const r2 = instr & 0x7;
+                    const r2 = instr & 0b111;
                     reg[r0] = reg[r1] + reg[r2];
                 }
                 update_flags(r0);
             },
-            .LDI => {
-                const r0 = (instr >> 9) & 0x7;
-                const pc_offset = sign_extend(instr & 0b1_1111_1111, 9);
-                reg[r0] = mem_read(mem_read(get_reg(.PC) + pc_offset));
+            .AND => {
+                const r0 = (instr >> 9) & 0b111;
+                const r1 = (instr >> 6) & 0b111;
+                const imm_flag = (instr >> 5) & 1;
+                if (imm_flag == 1) {
+                    const imm5 = sign_extend(instr & 0b0001_1111, 5);
+                    reg[r0] = reg[r1] & imm5;
+                } else {
+                    const r2 = instr & 0b111;
+                    reg[r0] = reg[r1] & reg[r2];
+                }
                 update_flags(r0);
             },
-            .BR => {},
-            .LD => {},
-            .ST => {},
-            .JSR => {},
-            .AND => {},
-            .LDR => {},
-            .STR => {},
-            .NOT => {},
-            .STI => {},
-            .JMP => {},
-            .LEA => {},
+            .NOT => {
+                const r0 = (instr >> 9) & 0b111;
+                const r1 = (instr >> 6) & 0b111;
+                reg[r0] = ~reg[r1];
+                update_flags(r0);
+            },
+
+            // Loads
+            .LD => {
+                const r0 = (instr >> 9) & 0b111;
+                const pc_offset = sign_extend(instr & 0b1_1111_1111, 9);
+                reg[r0] = mem_read(reg_read(.PC) + pc_offset);
+                update_flags(r0);
+            },
+            .LDR => {
+                const r0 = (instr >> 9) & 0b111;
+                const r1 = (instr >> 6) & 0b111;
+                const offset = sign_extend(instr & 0b0011_1111, 6);
+                reg[r0] = mem_read(reg[r1] + offset);
+                update_flags(r0);
+            },
+            .LDI => {
+                const r0 = (instr >> 9) & 0b111;
+                const pc_offset = sign_extend(instr & 0b1_1111_1111, 9);
+                reg[r0] = mem_read(mem_read(reg_read(.PC) + pc_offset));
+                update_flags(r0);
+            },
+            .LEA => {
+                const r0 = (instr >> 9) & 0b111;
+                const pc_offset = sign_extend(instr & 0b1_1111_1111, 9);
+                reg[r0] = reg_read(.PC) + pc_offset;
+                update_flags(r0);
+            },
+
+            // Stores
+            .ST => {
+                const r0 = (instr >> 9) & 0b111;
+                const pc_offset = sign_extend(instr & 0b1_1111_1111, 9);
+                mem_write(reg_read(.PC) + pc_offset, reg[r0]);
+            },
+            .STR => {
+                const r0 = (instr >> 9) & 0b111;
+                const r1 = (instr >> 6) & 0b111;
+                const offset = sign_extend(instr & 0b0011_1111, 6);
+                mem_write(reg[r1] + offset, reg[r0]);
+            },
+            .STI => {
+                const r0 = (instr >> 9) & 0b111;
+                const pc_offset = sign_extend(instr & 0b1_1111_1111, 9);
+                mem_write(mem_read(reg_read(.PC) + pc_offset), reg[r0]);
+            },
+
+            // Jumps, branches
+            .BR => {
+                const pc_offset = sign_extend(instr & 0b1_1111_1111, 9);
+                const cond_flag = (instr >> 9) & 0b111;
+                if (cond_flag & reg_read(.COND) != 0) {
+                    reg_write(.PC, reg_read(.PC) + pc_offset);
+                }
+            },
+            .JMP => {
+                const r1 = (instr >> 6) & 0b111;
+                reg_write(.PC, reg[r1]);
+            },
+            .JSR => {
+                const long_flag = (instr >> 11) & 1;
+                reg_write(.R7, reg_read(.PC));
+                if (long_flag == 1) {
+                    const long_pc_offset = sign_extend(0b0000_0111_1111_1111, 11);
+                    reg_write(.PC, reg_read(.PC) + long_pc_offset);
+                } else {
+                    const r1 = (instr >> 6) & 0b111;
+                    reg_write(.PC, reg[r1]);
+                }
+            },
+
+            // Trap codes:
             .TRAP => {},
-            .RTI, .RES => return error.BadOpCode,
         }
         running = false;
     }
 
-    return get_reg(.R0);
+    return reg_read(.R0);
 }
 
 pub fn main() anyerror!void {
