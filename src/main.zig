@@ -1,35 +1,25 @@
 const std = @import("std");
-
-const Program = []u16;
+const mem = std.mem;
+const math = std.math;
+const io = std.io;
+const fs = std.fs;
 
 const Register = enum(u16) {
-    R0,
-    R1,
-    R2,
-    R3,
-    R4,
-    R5,
-    R6,
-    R7,
-    PC,
-    COND,
-
-    const Self = @This();
-
-    pub fn as_u16(self: Self) u16 {
-        return @enumToInt(self);
-    }
-
-    pub fn get_count() comptime_int {
-        return @typeInfo(Register).Enum.fields.len;
-    }
+    R0 = 0b0000,
+    R1 = 0b0001,
+    R2 = 0b0010,
+    R3 = 0b0011,
+    R4 = 0b0100,
+    R5 = 0b0101,
+    R6 = 0b0110,
+    R7 = 0b0111,
+    PC = 0b1000, // program counter
+    COND = 0b1001, // conditional flags
 };
 
 const Opcode = enum(u16) {
     BR = 0b0000, // branch
-    ADD = 0b0001, // add:
-    //  [0001|DR |SR1|0|00|SR2] (register)
-    //  [0001|DR |SR1|1| IMM5 ] (immediate s5 value)
+    ADD = 0b0001, // add
     LD = 0b0010, // load
     ST = 0b0011, // store
     JSR = 0b0100, // jump register
@@ -38,28 +28,18 @@ const Opcode = enum(u16) {
     STR = 0b0111, // store register
     RTI = 0b1000, // unused
     NOT = 0b1001, // bitwise not
-    LDI = 0b1010, // load indirect [1010|DR |OFFSET   ]
+    LDI = 0b1010, // load indirect
     STI = 0b1011, // store indirect
     JMP = 0b1100, // jump
     RES = 0b1101, // reserved (unused)
     LEA = 0b1110, // load effective address
-    TRAP = 0b1111, // execute trap [1111|0000|TRAPVECT]
-
-    const Self = @This();
-    pub fn as_u16(self: Self) u16 {
-        return @enumToInt(self);
-    }
+    TRAP = 0b1111, // execute trap
 };
 
 const Flag = enum(u16) {
-    POS = 1 << 0,
-    ZRO = 1 << 1,
-    NEG = 1 << 2,
-
-    const Self = @This();
-    pub fn as_u16(self: Self) u16 {
-        return @enumToInt(self);
-    }
+    POS = 0b001,
+    ZRO = 0b010,
+    NEG = 0b100,
 };
 
 const Trap = enum(u16) {
@@ -71,33 +51,25 @@ const Trap = enum(u16) {
     HALT = 0x25 // halt the program
 };
 
-fn read_image(path: ?[]const u8) !void {
-    if (path) |p| {
-        // UNIMPLEMENTED
-        return;
-    }
-    return error.NoPathProvided;
-}
-
-var memory = [_]u16{0} ** std.math.maxInt(u16);
-var reg = [_]u16{0} ** Register.get_count();
+var memory = [_]u16{0} ** math.maxInt(u16);
+var reg = [_]u16{0} ** @typeInfo(Register).Enum.fields.len;
 
 fn update_flags(r0: u16) void {
-    if (reg[r0] == 0) {
-        reg_write(.COND, Flag.ZRO.as_u16());
+    if (reg[r0] == 0) { // TODO: do we need to account for -0?
+        reg_write(.COND, @enumToInt(Flag.ZRO));
     } else if (reg[r0] >> 15 != 0) {
-        reg_write(.COND, Flag.NEG.as_u16());
+        reg_write(.COND, @enumToInt(Flag.NEG));
     } else {
-        reg_write(.COND, Flag.POS.as_u16());
+        reg_write(.COND, @enumToInt(Flag.POS));
     }
 }
 
 fn reg_write(r: Register, val: u16) void {
-    reg[r.as_u16()] = val;
+    reg[@enumToInt(r)] = val;
 }
 
 fn reg_read(r: Register) u16 {
-    return reg[r.as_u16()];
+    return reg[@enumToInt(r)];
 }
 
 fn mem_read(addr: u16) u16 {
@@ -108,10 +80,34 @@ fn mem_write(addr: u16, val: u16) void {
     memory[addr] = val;
 }
 
+fn read_image(path: []const u8) !void {
+    const fd = try fs.Dir.openFile(path, .{});
+    try read_image_file(fd);
+}
+
+fn read_image_file(f: io.File) !void {
+    const file = f.reader();
+    const origin = mem.nativeToBig(try file.readIntLittle(u16));
+    const max_read = math.maxInt(u16) - origin;
+    var span = memory[origin .. origin + max_read];
+    _ = file.readNoEof(mem.asBytes(span));
+    for (span) |*word| {
+        word.* = mem.nativeToBig(word.*);
+    }
+}
+
 // TODO: fn sign_extend(x: u16, comptime source_type: type) u16;
-//    sign_extend(instr, i5) == sign_extend(instr & 0b0001_1111, 5)
-//    sign_extend(instr, i6) == sign_extend(instr & 0b0011_1111, 6)
-//    sign_extend(instr, i9) == sign_extend(instr & 0b1_1111_1111, 9)
+//    sign_extend2(instr, 5) == sign_extend(instr & 0b0001_1111, 5)
+//    sign_extend(instr, 6) == sign_extend(instr & 0b0011_1111, 6)
+//    sign_extend(instr, 9) == sign_extend(instr & 0b1_1111_1111, 9)
+// fn sign_extend_2(instr: u16, comptime sz: usize) u16 {
+//     var ret = instr & ~(@as(u16, 0xFFFF) << sz);
+//     if ((ret >> (sz - 1)) & 1 != 0) {
+//         return ret | (@as(u16, 0xFFFF) << sz);
+//     } else {
+//         return ret;
+//     }
+// }
 fn sign_extend(x: u16, bit_count: u4) u16 {
     if ((x >> (bit_count - 1)) & 1 != 0) {
         return x | @as(u16, 0xFFFF) << bit_count;
@@ -121,8 +117,8 @@ fn sign_extend(x: u16, bit_count: u4) u16 {
 }
 
 fn lc3() !u16 {
-    const stdout = std.io.getStdOut().writer();
-    const stdin = std.io.getStdIn().reader();
+    const stdout = io.getStdOut().writer();
+    const stdin = io.getStdIn().reader();
 
     const pc_start = 0x3000;
     reg_write(.PC, pc_start);
@@ -143,10 +139,10 @@ fn lc3() !u16 {
                 const imm_flag = (instr >> 5) & 1;
                 if (imm_flag == 1) {
                     const imm5 = sign_extend(instr & 0x1F, 5);
-                    reg[r0] = reg[r1] + imm5;
+                    reg[r0] = reg[r1] +% imm5; // TODO: what's the overflow behaviour on lc3?
                 } else {
                     const r2 = instr & 0b111;
-                    reg[r0] = reg[r1] + reg[r2];
+                    reg[r0] = reg[r1] +% reg[r2];
                 }
                 update_flags(r0);
             },
@@ -245,27 +241,26 @@ fn lc3() !u16 {
                 switch (code) {
                     .IN => {
                         const ch8 = try stdin.readIntNative(u8);
-                        const ch16 = try std.math.cast(u16, ch8);
-                        reg_write(.R0, ch16);
-                        try stdout.writeByte(ch8 & 0xFF);
+                        reg_write(.R0, @intCast(u16, ch8));
+                        try stdout.writeByte(ch8);
                     },
                     .OUT => {
-                        const ch8 = try std.math.cast(u8, reg_read(.R0));
+                        const ch8 = try math.cast(u8, reg_read(.R0) & 0xFF);
                         try stdout.writeByte(ch8);
                     },
                     .GETC => {
-                        const ch16 = try std.math.cast(u16, try stdin.readIntNative(u8));
+                        const ch16 = @intCast(u16, try stdin.readIntNative(u8));
                         reg_write(.R0, ch16 & 0xFF);
                     },
                     .PUTS => {
-                        const str = std.mem.spanZ(memory[reg_read(.R0)..]);
+                        const str = mem.spanZ(memory[reg_read(.R0)..:0]);
                         for (str) |ch16| {
-                            try stdout.writeByte(try std.math.cast(u8, ch16));
+                            try stdout.writeByte(try math.cast(u8, ch16 & 0xFF));
                         }
                     },
                     .PUTSP => {
-                        const str = std.mem.spanZ(memory[reg_read(.R0)..]);
-                        for (std.mem.sliceAsBytes(str)) |ch8| {
+                        const str = mem.spanZ(memory[reg_read(.R0)..:0]);
+                        for (mem.sliceAsBytes(str)) |ch8| {
                             try stdout.writeByte(ch8);
                         }
                     },
