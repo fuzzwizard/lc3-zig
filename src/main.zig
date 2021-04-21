@@ -10,6 +10,7 @@ const c = @cImport({
     @cInclude("signal.h"); // SIGINT
 });
 
+// Unused!@
 const LC3 = struct {
     const Memory = [math.maxInt(u16)]u16;
     const Registers = [@typeInfo(Register).Enum.fields.len]u16;
@@ -131,7 +132,7 @@ fn read_image_file(f: io.File) !void {
     const file = f.reader();
     const origin = mem.nativeToBig(try file.readIntLittle(u16));
     const max_read = math.maxInt(u16) - origin;
-    var span = memory[origin .. origin + max_read];
+    var span = memory[origin..(origin + max_read)];
     _ = file.readNoEof(mem.asBytes(span));
     for (span) |*word| {
         word.* = mem.bigToNative(word.*);
@@ -325,7 +326,7 @@ fn handle_interrupt(signal: c_int) callconv(.C) void {
     if (stdout.writeByte('\n')) {
         std.os.exit(-2);
     } else |e| {
-        std.debug.panic("{}", .{e});
+        std.debug.panic("Unhandled error: {}", .{e});
     }
 }
 
