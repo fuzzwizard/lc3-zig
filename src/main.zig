@@ -4,6 +4,34 @@ const math = std.math;
 const io = std.io;
 const fs = std.fs;
 
+const platform = @import("platform.zig");
+
+const c = @cImport({
+    @cInclude("signal.h"); // SIGINT
+});
+
+const LC3 = struct {
+    const Memory = [math.maxInt(u16)]u16;
+    const Registers = [@typeInfo(Register).Enum.fields.len]u16;
+
+    var memory: Memory = .{};
+    var reg: Registers = .{};
+};
+
+const Trap = enum(u16) {
+    GETC = 0x20, // get character from keyboard, not echoed onto the terminal
+    OUT = 0x21, // output a character
+    PUTS = 0x22, // output a word string
+    IN = 0x23, // get character from keyboard, echoed onto the terminal
+    PUTSP = 0x24, // output a byte string
+    HALT = 0x25 // halt the program
+};
+
+const MMRegisters = enum(u16) {
+    KBSR = 0xFE00, // keyboard status
+    KBDR = 0xFE02, // keyboard data
+};
+
 const Register = enum(u16) {
     R0 = 0b0000,
     R1 = 0b0001,
@@ -42,15 +70,8 @@ const Flag = enum(u16) {
     NEG = 0b100,
 };
 
-const Trap = enum(u16) {
-    GETC = 0x20, // get character from keyboard, not echoed onto the terminal
-    OUT = 0x21, // output a character
-    PUTS = 0x22, // output a word string
-    IN = 0x23, // get character from keyboard, echoed onto the terminal
-    PUTSP = 0x24, // output a byte string
-    HALT = 0x25 // halt the program
-};
-
+var stdout: fs.File.Writer = undefined;
+var stdin: fs.File.Reader = undefined;
 var memory = [_]u16{0} ** math.maxInt(u16);
 var reg = [_]u16{0} ** @typeInfo(Register).Enum.fields.len;
 
@@ -64,6 +85,10 @@ fn update_flags(r0: u16) void {
     }
 }
 
+fn check_key() u16 {
+    return 0;
+}
+
 fn reg_write(r: Register, val: u16) void {
     reg[@enumToInt(r)] = val;
 }
@@ -72,7 +97,24 @@ fn reg_read(r: Register) u16 {
     return reg[@enumToInt(r)];
 }
 
-fn mem_read(addr: u16) u16 {
+fn mmr_read(r: MMRegisters) u16 {
+    return memory[@enumToInt(r)];
+}
+
+fn mmr_ptr(r: MMRegisters) *u16 {
+    return &memory[@enumToInt(r)];
+}
+
+fn mem_read(addr: u16) !u16 {
+    if (addr == @enumToInt(MMRegisters.KBSR)) {
+        if (platform.check_key() != 0) {
+            const ch = try stdin.readIntNative(u8);
+            mmr_ptr(.KBSR).* = (1 << 15);
+            mmr_ptr(.KBDR).* = @intCast(u16, ch);
+        } else {
+            mmr_ptr(.KBSR).* = 0;
+        }
+    }
     return memory[addr];
 }
 
@@ -92,7 +134,7 @@ fn read_image_file(f: io.File) !void {
     var span = memory[origin .. origin + max_read];
     _ = file.readNoEof(mem.asBytes(span));
     for (span) |*word| {
-        word.* = mem.nativeToBig(word.*);
+        word.* = mem.bigToNative(word.*);
     }
 }
 
@@ -116,9 +158,11 @@ fn sign_extend(x: u16, bit_count: u4) u16 {
     }
 }
 
+// fn eval(state: LC3) !u16 {
+
 fn lc3() !u16 {
-    const stdout = io.getStdOut().writer();
-    const stdin = io.getStdIn().reader();
+    stdout = io.getStdOut().writer();
+    stdin = io.getStdIn().reader();
 
     const pc_start = 0x3000;
     reg_write(.PC, pc_start);
@@ -170,20 +214,20 @@ fn lc3() !u16 {
             .LD => {
                 const r0 = (instr >> 9) & 0b111;
                 const pc_offset = sign_extend(instr & 0x1FF, 9);
-                reg[r0] = mem_read(reg_read(.PC) + pc_offset);
+                reg[r0] = try mem_read(reg_read(.PC) + pc_offset);
                 update_flags(r0);
             },
             .LDR => {
                 const r0 = (instr >> 9) & 0b111;
                 const r1 = (instr >> 6) & 0b111;
                 const offset = sign_extend(instr & 0x3F, 6);
-                reg[r0] = mem_read(reg[r1] + offset);
+                reg[r0] = try mem_read(reg[r1] + offset);
                 update_flags(r0);
             },
             .LDI => {
                 const r0 = (instr >> 9) & 0b111;
                 const pc_offset = sign_extend(instr & 0x1FF, 9);
-                reg[r0] = mem_read(mem_read(reg_read(.PC) + pc_offset));
+                reg[r0] = try mem_read(try mem_read(reg_read(.PC) + pc_offset));
                 update_flags(r0);
             },
             .LEA => {
@@ -208,7 +252,7 @@ fn lc3() !u16 {
             .STI => {
                 const r0 = (instr >> 9) & 0b111;
                 const pc_offset = sign_extend(instr & 0x1FF, 9);
-                mem_write(mem_read(reg_read(.PC) + pc_offset), reg[r0]);
+                mem_write(try mem_read(reg_read(.PC) + pc_offset), reg[r0]);
             },
 
             // Jumps, branches
@@ -235,7 +279,7 @@ fn lc3() !u16 {
                 }
             },
 
-            // Trap codes:
+            // Trap codes
             .TRAP => {
                 var code = @intToEnum(Trap, instr & 0xFF);
                 switch (code) {
@@ -276,8 +320,20 @@ fn lc3() !u16 {
     return reg_read(.R0);
 }
 
+fn handle_interrupt(signal: c_int) callconv(.C) void {
+    platform.restore_input_buffering();
+    if (stdout.writeByte('\n')) {
+        std.os.exit(-2);
+    } else |e| {
+        std.debug.panic("{}", .{e});
+    }
+}
+
 pub fn main() anyerror!void {
     const al = std.heap.page_allocator;
+
+    _ = c.signal(std.c.SIGINT, handle_interrupt);
+    platform.disable_input_buffering();
 
     const args = try std.process.argsAlloc(al);
     defer std.process.argsFree(al, args);
