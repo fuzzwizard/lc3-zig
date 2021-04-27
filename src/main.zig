@@ -155,6 +155,8 @@ fn lc3() !u16 {
 
     var running = true;
     while (running) {
+        std.time.sleep(60_000_000);
+
         var instr = memory[reg_read(.PC)];
         reg_write(.PC, reg_read(.PC) + 1);
         var op = @intToEnum(Opcode, instr >> 12);
@@ -285,13 +287,13 @@ fn lc3() !u16 {
                     .PUTS => {
                         std.debug.warn("reg: {}", .{reg_read(.R0)});
                         // currently reading out of bounds here
-                        const str = mem.spanZ(memory[reg_read(.R0)..:0]);
+                        const str = mem.spanZ(memory[reg_read(.R0)..]);
                         for (str) |ch16| {
                             try stdout.writeByte(@truncate(u8, ch16));
                         }
                     },
                     .PUTSP => {
-                        const str = mem.spanZ(memory[reg_read(.R0)..:0]);
+                        const str = mem.spanZ(memory[reg_read(.R0)..]);
                         for (mem.sliceAsBytes(str)) |ch8| {
                             try stdout.writeByte(ch8);
                         }
@@ -303,7 +305,6 @@ fn lc3() !u16 {
                 }
             },
         }
-        std.time.sleep(60_000_000);
     }
 
     return reg_read(.R0);
