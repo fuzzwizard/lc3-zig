@@ -10,14 +10,6 @@ const c = @cImport({
     @cInclude("signal.h"); // SIGINT
 });
 
-const LC3 = struct {
-    const Memory = [math.maxInt(u16)]u16;
-    const Registers = [@typeInfo(Register).Enum.fields.len]u16;
-
-    var memory: Memory = .{};
-    var reg: Registers = .{};
-};
-
 const Trap = enum(u16) {
     GETC = 0x20, // get character from keyboard, not echoed onto the terminal
     OUT = 0x21, // output a character
