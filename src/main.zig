@@ -284,6 +284,7 @@ fn lc3() !u16 {
                     },
                     .PUTS => {
                         std.debug.warn("reg: {}", .{reg_read(.R0)});
+                        // currently reading out of bounds here
                         const str = mem.spanZ(memory[reg_read(.R0)..:0]);
                         for (str) |ch16| {
                             try stdout.writeByte(@truncate(u8, ch16));
