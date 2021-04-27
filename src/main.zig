@@ -77,10 +77,6 @@ fn update_flags(r0: u16) void {
     }
 }
 
-fn check_key() u16 {
-    return 0;
-}
-
 fn reg_write(r: Register, val: u16) void {
     reg[@enumToInt(r)] = val;
 }
@@ -115,26 +111,26 @@ fn mem_write(addr: u16, val: u16) void {
 }
 
 fn read_image(path: []const u8) !void {
-    const fd = try fs.Dir.openFile(path, .{});
+    const fd = try fs.cwd().openFile(path, .{});
     try read_image_file(fd);
 }
 
-fn read_image_file(f: io.File) !void {
+fn read_image_file(f: fs.File) !void {
     const file = f.reader();
-    const origin = mem.nativeToBig(try file.readIntLittle(u16));
+    const origin = try file.readIntLittle(u16);
     const max_read = math.maxInt(u16) - origin;
     var span = memory[origin..(origin + max_read)];
-    _ = file.readNoEof(mem.asBytes(span));
+    _ = try file.readNoEof(mem.sliceAsBytes(span));
     for (span) |*word| {
-        word.* = mem.bigToNative(word.*);
+        word.* = mem.bigToNative(u16, word.*);
     }
 }
 
-// TODO:
+// TODO: needs testing
 //    sign_extend2(instr, 5) == sign_extend(instr & 0b0001_1111, 5)
 //    sign_extend2(instr, 6) == sign_extend(instr & 0b0011_1111, 6)
 //    sign_extend2(instr, 9) == sign_extend(instr & 0b1_1111_1111, 9)
-// fn sign_extend_2(instr: u16, comptime sz: usize) u16 {
+// fn sign_extend2(instr: u16, comptime sz: usize) u16 {
 //     const ret = instr & ~(@as(u16, 0xFFFF) << sz);
 //     if ((ret >> (sz - 1)) & 1 != 0) {
 //         return ret | (@as(u16, 0xFFFF) << sz);
@@ -335,18 +331,12 @@ pub fn main() anyerror!void {
         return error.InsufficientArgs;
     }
 
-    // for (args[1..]) |arg| {
-    //     try read_image(arg) catch |e| {
-    // TODO: the catch here isn't detecting that read_image has the return type of `!void`
-    // so it gets mad that we try to catch it. Probably worth a bug report, if consistently reproducable. (Zig 7.1.0)
-    //         std.debug.warn("Failed to load file: {}", .{arg});
-    //         return e;
-    //     };
-    // }
+    for (args[1..]) |arg| {
+        read_image(arg) catch |e| {
+            std.debug.warn("Failed to load file: {}", .{arg});
+            return e;
+        };
+    }
 
-    _ = try lc3();
-}
-
-test "smoke" {
     _ = try lc3();
 }
