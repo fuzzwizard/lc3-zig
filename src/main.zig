@@ -117,10 +117,10 @@ fn read_image(path: []const u8) !void {
 
 fn read_image_file(f: fs.File) !void {
     const file = f.reader();
-    const origin = try file.readIntLittle(u16);
+    const origin = try file.readIntBig(u16);
     const max_read = math.maxInt(u16) - origin;
     var span = memory[origin..(origin + max_read)];
-    _ = try file.readNoEof(mem.sliceAsBytes(span));
+    _ = try file.readAll(mem.sliceAsBytes(span));
     for (span) |*word| {
         word.* = mem.bigToNative(u16, word.*);
     }
@@ -145,8 +145,6 @@ fn sign_extend(x: u16, bit_count: u4) u16 {
         return x;
     }
 }
-
-// fn eval(state: LC3) !u16 {
 
 fn lc3() !u16 {
     stdout = io.getStdOut().writer();
@@ -277,17 +275,18 @@ fn lc3() !u16 {
                         try stdout.writeByte(ch8);
                     },
                     .OUT => {
-                        const ch8 = try math.cast(u8, reg_read(.R0) & 0xFF);
+                        const ch8 = @truncate(u8, reg_read(.R0));
                         try stdout.writeByte(ch8);
                     },
                     .GETC => {
                         const ch16 = @intCast(u16, try stdin.readIntNative(u8));
-                        reg_write(.R0, ch16 & 0xFF);
+                        reg_write(.R0, ch16);
                     },
                     .PUTS => {
+                        std.debug.warn("reg: {}", .{reg_read(.R0)});
                         const str = mem.spanZ(memory[reg_read(.R0)..:0]);
                         for (str) |ch16| {
-                            try stdout.writeByte(try math.cast(u8, ch16 & 0xFF));
+                            try stdout.writeByte(@truncate(u8, ch16));
                         }
                     },
                     .PUTSP => {
@@ -303,6 +302,7 @@ fn lc3() !u16 {
                 }
             },
         }
+        std.time.sleep(60_000_000);
     }
 
     return reg_read(.R0);
@@ -311,7 +311,7 @@ fn lc3() !u16 {
 fn handle_interrupt(signal: c_int) callconv(.C) void {
     platform.restore_input_buffering();
     if (stdout.writeByte('\n')) {
-        std.os.exit(1);
+        std.os.exit(0x41); // -2
     } else |e| {
         std.debug.panic("\nUnhandled error: {}\n", .{e});
     }
@@ -333,7 +333,7 @@ pub fn main() anyerror!void {
 
     for (args[1..]) |arg| {
         read_image(arg) catch |e| {
-            std.debug.warn("Failed to load file: {}", .{arg});
+            std.debug.warn("Failed to load file: {}\n", .{arg});
             return e;
         };
     }
