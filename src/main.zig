@@ -138,12 +138,12 @@ fn read_image_file(f: io.File) !void {
     }
 }
 
-// TODO: fn sign_extend(x: u16, comptime source_type: type) u16;
+// TODO:
 //    sign_extend2(instr, 5) == sign_extend(instr & 0b0001_1111, 5)
-//    sign_extend(instr, 6) == sign_extend(instr & 0b0011_1111, 6)
-//    sign_extend(instr, 9) == sign_extend(instr & 0b1_1111_1111, 9)
+//    sign_extend2(instr, 6) == sign_extend(instr & 0b0011_1111, 6)
+//    sign_extend2(instr, 9) == sign_extend(instr & 0b1_1111_1111, 9)
 // fn sign_extend_2(instr: u16, comptime sz: usize) u16 {
-//     var ret = instr & ~(@as(u16, 0xFFFF) << sz);
+//     const ret = instr & ~(@as(u16, 0xFFFF) << sz);
 //     if ((ret >> (sz - 1)) & 1 != 0) {
 //         return ret | (@as(u16, 0xFFFF) << sz);
 //     } else {
