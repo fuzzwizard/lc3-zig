@@ -1,5 +1,10 @@
 [ ] Get to ch. 16
-[ ] idiomatic zig
-[ ] zig tests
-[ ] platforms
-[ ] asm tests?
+[ ] Make it more zig-idiomatic
+    [ ] Create an LC3State/Context struct and tie methods to it
+[ ] zig unit tests
+    [ ]
+[/] platforms
+    [/] windows
+        [ ] Currently unfinished. Since I started the project on zig 0.7.1, but there's sadly a bug (fixed in 0.8.0), where translate-c fails to insert semicolons.
+    [ ] linux
+[ ] ASM Tests

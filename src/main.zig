@@ -10,7 +10,6 @@ const c = @cImport({
     @cInclude("signal.h"); // SIGINT
 });
 
-// Unused!@
 const LC3 = struct {
     const Memory = [math.maxInt(u16)]u16;
     const Registers = [@typeInfo(Register).Enum.fields.len]u16;
@@ -324,9 +323,9 @@ fn lc3() !u16 {
 fn handle_interrupt(signal: c_int) callconv(.C) void {
     platform.restore_input_buffering();
     if (stdout.writeByte('\n')) {
-        std.os.exit(-2);
+        std.os.exit(1);
     } else |e| {
-        std.debug.panic("Unhandled error: {}", .{e});
+        std.debug.panic("\nUnhandled error: {}\n", .{e});
     }
 }
 
@@ -334,7 +333,7 @@ pub fn main() anyerror!void {
     const al = std.heap.page_allocator;
 
     _ = c.signal(std.c.SIGINT, handle_interrupt);
-    platform.disable_input_buffering();
+    try platform.disable_input_buffering();
 
     const args = try std.process.argsAlloc(al);
     defer std.process.argsFree(al, args);
